@@ -11,10 +11,12 @@
     get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
     set(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* 保存できなくても動く */ } },
   };
-  const S = hash().get('s') || store.get('fb_s');
-  const K = hash().get('k') || store.get('fb_k');
-  if (hash().get('s')) store.set('fb_s', S);
-  if (hash().get('k')) store.set('fb_k', K);
+  // 正しい形のIDだけを使う（「undefined」などの壊れたリンクは保存しない）
+  const valid = v => !!v && v !== 'undefined' && v !== 'null' && /^[A-Za-z0-9_-]{10,}$/.test(v);
+  const S = valid(hash().get('s')) ? hash().get('s') : store.get('fb_s');
+  const K = valid(hash().get('k')) ? hash().get('k') : store.get('fb_k');
+  if (valid(hash().get('s'))) store.set('fb_s', S);
+  if (valid(hash().get('k'))) store.set('fb_k', K);
   const API = 'https://script.google.com/macros/s/' + S + '/exec';
 
   const $ = id => document.getElementById(id);
@@ -27,8 +29,14 @@
   // ===== API =====
   async function api(name, params) {
     const q = new URLSearchParams(Object.assign({ api: name, k: K }, params || {}));
-    const res = await fetch(API + '?' + q.toString());
-    const body = await res.json();
+    let res;
+    try {
+      res = await fetch(API + '?' + q.toString());
+    } catch (e) {
+      throw new Error('サーバーにつながりません（通信状態か、メニューのリンクを確認してください）');
+    }
+    let body;
+    try { body = await res.json(); } catch (e) { throw new Error('サーバーの応答を読めません（' + res.status + '）'); }
     if (!body.ok) throw new Error(body.error || 'エラー');
     return body.data;
   }
@@ -49,7 +57,10 @@
 
   // ===== ルーティング =====
   function route() {
-    if (!S || !K) { app.innerHTML = '<p class="empty">LINEのメニューのボタンから開いてください。</p>'; return; }
+    if (!valid(S) || !valid(K)) {
+      app.innerHTML = '<p class="empty">ページのリンクが正しくありません。LINEのメニューのボタンのリンクを設定し直してください。</p>';
+      return;
+    }
     window.scrollTo(0, 0);
     const p = pageName();
     if (p === 'shop') return shopPage();
