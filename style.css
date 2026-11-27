@@ -68,3 +68,68 @@ a { color: inherit; }
 .help li { margin: 3px 0; }
 .ex { background: #eef7f1; color: #05793a; border-radius: 6px; padding: 1px 6px; font-weight: 700; white-space: nowrap; }
 .tip { background: #fff8e1; border-radius: 8px; padding: 8px 10px; }
+
+/* 家事リスト */
+.navlink { display: flex; justify-content: space-between; align-items: center; background: var(--card); border-radius: 12px; padding: 14px 16px; margin-top: 28px; text-decoration: none; font-weight: 700; box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+.navlink span { color: var(--accent); }
+.tabs { display: flex; gap: 6px; margin: 0 0 14px; }
+.tab { flex: 1; text-align: center; padding: 9px 4px; border-radius: 10px; background: #fff; border: 1px solid #ddd; text-decoration: none; font-size: 14px; color: var(--sub); }
+.tab.on { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 700; }
+.me { font-size: 13px; color: var(--sub); margin-bottom: 10px; }
+.link { background: none; border: none; color: var(--accent); font-size: 13px; padding: 0 4px; text-decoration: underline; }
+.whoami { background: #fff; border-radius: 12px; padding: 16px; box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+.whoami p { font-size: 13px; color: var(--sub); margin: 6px 0 12px; }
+.pick { display: flex; flex-wrap: wrap; gap: 8px; }
+.pick button { flex: 1 1 30%; min-width: 0; padding: 11px 6px; border-radius: 10px; border: 2px solid var(--c, #999); background: #fff; color: var(--c, #444); font-size: 15px; font-weight: 700; }
+.pick button.no { border-color: #ddd; color: #888; font-weight: 400; }
+.citem { display: flex; align-items: center; background: var(--card); border-radius: 12px; padding: 13px 12px; margin-bottom: 8px; box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+.citem .box { width: 24px; height: 24px; border: 2px solid var(--accent); border-radius: 50%; margin-right: 12px; flex: none; display: flex; align-items: center; justify-content: center; color: #fff; font-weight: 700; font-size: 14px; }
+.citem .name { flex: 1; font-size: 17px; min-width: 0; }
+.citem .pt { flex: none; font-size: 12px; color: var(--muted); background: #f1f1ee; border-radius: 8px; padding: 2px 7px; margin-left: 6px; }
+.citem .del { color: #bbb; font-size: 20px; padding: 0 4px 0 8px; background: none; border: none; }
+.citem.open { margin-bottom: 0; border-radius: 12px 12px 0 0; box-shadow: none; border: 2px solid var(--accent); border-bottom: none; }
+.citem.done { opacity: .55; }
+.citem.done .box { background: var(--accent); }
+.citem .by { font-size: 12px; color: var(--sub); margin-left: 4px; }
+.citem .undo { flex: none; background: #fff; border: 1px solid #ccc; border-radius: 14px; font-size: 12px; padding: 4px 9px; margin-left: 8px; color: #444; }
+.since { display: inline-block; font-size: 11px; color: #b25f00; background: #fff3dc; border-radius: 8px; padding: 1px 6px; vertical-align: middle; }
+.whopick { background: #fff; border: 2px solid var(--accent); border-top: 1px dashed #cde; border-radius: 0 0 12px 12px; padding: 10px 12px 12px; margin-bottom: 8px; }
+.whopick > span { display: block; font-size: 13px; color: var(--sub); margin-bottom: 8px; }
+.chadd select { max-width: 30%; }
+.add select#ccat { flex: 1; max-width: none; }
+.note { font-size: 12px; color: var(--muted); line-height: 1.6; margin: 10px 0; }
+.rcard { background: var(--card); border-radius: 12px; padding: 12px 14px; margin-bottom: 8px; box-shadow: 0 1px 2px rgba(0,0,0,.08); cursor: pointer; }
+.rcard .name { font-size: 16px; font-weight: 700; }
+.rcard .meta { font-size: 12px; color: var(--muted); margin-top: 3px; }
+.rcard.stopped { opacity: .55; }
+.newbtn { display: block; width: 100%; margin-top: 12px; padding: 12px; border-radius: 12px; border: 2px dashed var(--accent); background: #fff; color: var(--accent-dark); font-size: 15px; font-weight: 700; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { background: #fff; border: 1px solid #ddd; border-radius: 16px; padding: 6px 11px; font-size: 13px; color: var(--text); }
+.rform { margin: 0 0 14px; }
+.rform label { display: block; font-size: 12px; color: var(--sub); margin-top: 10px; }
+.rform label input, .rform label select { display: block; width: 100%; margin-top: 4px; font-size: 16px; padding: 9px; border: 1px solid #ccc; border-radius: 10px; background: #fff; }
+.rform .when[hidden] { display: none; }
+.rform .row3 { display: flex; gap: 8px; }
+.rform .row3 label { flex: 1; min-width: 0; }
+.wds { display: flex; gap: 4px; margin-top: 10px; }
+.wd { flex: 1; padding: 9px 0; border-radius: 10px; border: 1px solid #ccc; background: #fff; font-size: 15px; color: var(--text); }
+.wd.on { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 700; }
+.legend { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; font-size: 13px; margin-bottom: 10px; }
+.legend i, .nums i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; }
+.legend .lnote { color: var(--muted); font-size: 11px; margin-left: auto; }
+.scard { background: var(--card); border-radius: 12px; padding: 12px 14px; margin-bottom: 10px; box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+.scard .h { font-weight: 700; font-size: 14px; margin-bottom: 8px; }
+.bar { display: flex; height: 22px; border-radius: 6px; overflow: hidden; background: #eee; }
+.bar.empty { width: 100%; }
+.bar span { display: flex; align-items: center; justify-content: center; color: #fff; font-size: 11px; font-weight: 700; }
+.nums { display: flex; gap: 10px; margin-top: 8px; }
+.nums > div { flex: 1; font-size: 13px; }
+.nums b { display: block; font-size: 20px; margin-top: 2px; }
+.nums small { color: var(--muted); }
+.srow { display: flex; align-items: center; gap: 8px; margin: 7px 0; }
+.srow .lab { flex: none; width: 92px; font-size: 12px; color: var(--sub); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.srow .track { flex: 1; min-width: 0; }
+.srow .bar { height: 18px; }
+.srow .tot { flex: none; width: 30px; text-align: right; font-size: 12px; color: var(--muted); }
+.panel .wd { flex: 1; padding: 9px 0; border-radius: 10px; border: 1px solid #ccc; background: #fff; font-size: 15px; font-weight: 400; color: var(--text); }
+.panel .wd.on { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 700; }

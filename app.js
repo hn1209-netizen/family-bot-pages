@@ -1,4 +1,4 @@
-// 家族Bot のメニューから開くページ（プリント・ピアノ・買い物リスト・使い方）
+// 家族Bot のメニューから開くページ（プリント・ピアノ・買い物リスト・家事リスト・使い方）
 // データは Google Apps Script（family-bot）のAPIから読み書きする。
 // URLの「#」以降に s（Apps ScriptのデプロイID）と k（鍵）を持たせる。「#」以降はサーバーに送られない。
 // このファイルには秘密の情報を含めない。
@@ -65,6 +65,8 @@
     const p = pageName();
     if (p === 'shop') return shopPage();
     if (p === 'help') return helpPage();
+    if (p === 'chores' || p === 'chores-routines') return choresPage(p);
+    if (p === 'chores-stats') return choreStatsPage();
     return homePages(p);
   }
   window.addEventListener('hashchange', route);
@@ -104,6 +106,7 @@
       '<h1 class="sec">🎹 ピアノの宿題</h1>' +
       (latestPiano.length ? latestPiano.map((x, i) => pianoCard(x, i === 0)).join('') : '<p class="empty">まだありません。メニューの「ピアノ」を押してから写真を送ると保存されます。</p>') +
       (piano.length > latestPiano.length ? '<a class="more" href="' + link('past-piano') + '">過去の一覧（' + (piano.length - latestPiano.length) + '枚）›</a>' : '') +
+      '<a class="navlink" href="' + link('chores') + '">🧹 家事リスト<span>›</span></a>' +
       '<a class="helplink" href="' + link('help') + '">❓ 使い方</a>';
   }
 
@@ -234,6 +237,266 @@
   }
   function closePanel() { target = null; const p = $('panel'); if (p) p.classList.remove('show'); }
 
+  // ===== 家事リスト =====
+  // リスト（p=chores）・ルーティン（p=chores-routines）・集計（p=chores-stats）
+  // 画面からは誰が開いているか分からないので、最初に「自分」を選んでもらい、この端末に覚えておく
+  let chores = cached('chores');
+  let cseq = 0, picking = null, editing2 = null;
+  const COLORS = ['#3b82f6', '#f59e0b', '#8b5cf6', '#ec4899'];
+  const WDS = '日月火水木金土';
+  const me = () => { const v = store.get('fb_me'); return chores && chores.members.some(m => m.id === v) ? v : null; };
+  const nameOf = (id, members) => id === 'both' ? '2人で' : ((members || chores.members).find(m => m.id === id) || {}).name || '（不明）';
+  const pts = n => (Math.round(n * 10) / 10) + '点';
+  const ptsOpts = sel => [1, 2, 3, 4, 5].map(n => '<option value="' + n + '"' + (n === sel ? ' selected' : '') + '>' + n + '点</option>').join('');
+  const catOpts = sel => chores.categories.map(c => '<option' + (c === sel ? ' selected' : '') + '>' + esc(c) + '</option>').join('');
+  const TEMPLATES = [
+    { name: '食器洗い', period: '毎日', count: 3, points: 2, cat: '料理・片付け' },
+    { name: '夕食づくり', period: '毎日', count: 1, points: 4, cat: '料理・片付け' },
+    { name: '洗濯', period: '毎日', count: 1, points: 2, cat: '洗濯' },
+    { name: '洗濯物をたたむ', period: '毎日', count: 1, points: 2, cat: '洗濯' },
+    { name: '風呂掃除', period: '毎日', count: 1, points: 2, cat: '掃除' },
+    { name: '寝かしつけ', period: '毎日', count: 1, points: 3, cat: '育児' },
+    { name: '学校・保育園の準備', period: '毎日', count: 1, points: 2, cat: '育児' },
+    { name: 'ゴミ出し', period: '毎週', when: '', count: 1, points: 1, cat: '掃除' },
+    { name: '掃除機', period: '毎週', when: '土', count: 1, points: 3, cat: '掃除' },
+    { name: 'トイレ掃除', period: '毎週', when: '土', count: 1, points: 2, cat: '掃除' },
+    { name: 'シーツ交換', period: '間隔', when: '14', count: 1, points: 2, cat: '洗濯' },
+    { name: '換気扇の掃除', period: '間隔', when: '90', count: 1, points: 4, cat: '掃除' },
+  ];
+
+  function periodLabel(r) {
+    const n = r.count > 1 ? '・1日' + r.count + '回' : '';
+    if (r.period === '毎週') return '毎週 ' + (r.when ? r.when.split(',').join('・') : '（曜日なし）') + n;
+    if (r.period === '毎月') return '毎月 ' + (r.when ? r.when.split(',').map(x => x === '末' ? '末日' : x + '日').join('・') : '') + n;
+    if (r.period === '間隔') return (r.when || '?') + '日ごと' + n;
+    return '毎日' + (r.count > 1 ? ' ' + r.count + '回' : '');
+  }
+
+  function choreHead(p) {
+    const t = (q, label) => '<a class="tab' + (p === q ? ' on' : '') + '" href="' + link(q) + '">' + label + '</a>';
+    return '<a class="back" href="' + link('home') + '">‹ プリント・ピアノ</a><h1>🧹 家事リスト</h1>' +
+      '<div class="tabs">' + t('chores', '📋 リスト') + t('chores-routines', '🔁 ルーティン') + t('chores-stats', '📊 集計') + '</div>';
+  }
+
+  function choresPage(p) {
+    picking = null; editing2 = null;
+    app.innerHTML = choreHead(p) + '<div id="cbody"><p class="empty">読み込み中…</p></div>';
+    bindChores();
+    if (chores) renderChores();
+    status('更新中…');
+    api('chores').then(d => applyChores(d, 0)).catch(e => status('更新できませんでした：' + e.message));
+  }
+
+  function applyChores(d, my) {
+    if (my !== cseq) return;
+    chores = d; remember('chores', d);
+    if (['chores', 'chores-routines'].includes(pageName())) renderChores();
+    status('');
+  }
+  function csend(name, params) {
+    const my = ++cseq;
+    status('保存中…');
+    api(name, params).then(d => applyChores(d, my)).catch(e => status('エラー：' + e.message));
+  }
+
+  function renderChores() {
+    const body = $('cbody'); if (!body || !chores) return;
+    body.innerHTML = pageName() === 'chores-routines' ? routinesHtml() : choreListHtml();
+  }
+
+  function whoAmIHtml() {
+    return '<div class="whoami"><b>👤 あなたはどちらですか？</b><p>やった人を記録するために使います（この端末に覚えておきます）。</p><div class="pick">' +
+      chores.members.map((m, i) => '<button data-me="' + esc(m.id) + '" style="--c:' + COLORS[i % 4] + '">' + esc(m.name) + '</button>').join('') + '</div></div>';
+  }
+
+  function choreListHtml() {
+    if (!me()) return whoAmIHtml();
+    const mine = me();
+    const others = chores.members.filter(m => m.id !== mine);
+    const row = x => {
+      const open = picking === x.id;
+      return '<div class="citem' + (open ? ' open' : '') + '" data-cid="' + esc(x.id) + '"><div class="box"></div><div class="name">' + esc(x.name) +
+        (x.since ? ' <span class="since">' + x.since + '日前から</span>' : '') + '</div><span class="pt">' + x.points + '点</span>' +
+        '<button class="del" data-cdel="' + esc(x.id) + '" aria-label="やらずに消す">×</button></div>' +
+        (open ? '<div class="whopick"><span>だれがやった？</span><div class="pick">' +
+          '<button data-who="' + esc(mine) + '" style="--c:' + COLORS[chores.members.findIndex(m => m.id === mine) % 4] + '">自分</button>' +
+          others.map(m => '<button data-who="' + esc(m.id) + '" style="--c:' + COLORS[chores.members.indexOf(m) % 4] + '">' + esc(m.name) + '</button>').join('') +
+          '<button data-who="both" style="--c:#06c755">' + (chores.members.length > 2 ? 'みんなで' : '2人で') + '</button>' +
+          '<button class="no" data-who="">やめる</button></div></div>' : '');
+    };
+    const cats = chores.categories;
+    const todo = chores.items;
+    return '<div class="me">👤 ' + esc(nameOf(mine)) + 'として記録します <button class="link" data-reme="1">変える</button></div>' +
+      (todo.length ? todo.map(row).join('') : '<p class="empty">残っている家事はありません 🎉</p>') +
+      (chores.done.length ? '<h2>✓ 終わった家事（' + 12 + '時間以内）</h2>' + chores.done.map(x =>
+        '<div class="citem done"><div class="box">✓</div><div class="name">' + esc(x.name) + ' <span class="by">' + esc(nameOf(x.by)) + '</span></div>' +
+        '<span class="pt">' + x.points + '点</span><button class="undo" data-undo="' + esc(x.id) + '">取り消す</button></div>').join('') : '') +
+      '<h2>＋ 家事を追加する</h2><div class="add chadd"><input id="cname" placeholder="例：網戸を洗う" enterkeyhint="done">' +
+      '<select id="cpts">' + ptsOpts(2) + '</select></div><div class="add"><select id="ccat">' + catOpts(cats[cats.length - 1]) + '</select>' +
+      '<button id="caddBtn">追加</button></div>' +
+      '<p class="note">毎日・毎週などの決まった家事は「🔁 ルーティン」に登録すると、自動でリストに入ります。</p>';
+  }
+
+  function routinesHtml() {
+    const rs = chores.routines;
+    const card = r => '<div class="rcard' + (r.stopped ? ' stopped' : '') + '" data-rid="' + esc(r.id) + '"><div class="name">' + esc(r.name) +
+      (r.stopped ? ' <span class="since">停止中</span>' : '') + '</div><div class="meta">' + esc(periodLabel(r)) + '・' + r.points + '点・' + esc(r.cat) + '</div></div>';
+    return (editing2 ? routineForm(editing2) : '') +
+      (rs.length ? rs.map(r => editing2 && editing2.id === r.id ? '' : card(r)).join('') : '<p class="empty">まだルーティンがありません。</p>') +
+      (editing2 && !editing2.id ? '' : '<button class="newbtn" data-rnew="1">＋ ルーティンを追加</button>' +
+        '<h3>よくある家事から追加</h3><div class="chips">' +
+        TEMPLATES.filter(t => !rs.some(r => r.name === t.name)).map((t, i) => '<button class="chip" data-tpl="' + TEMPLATES.indexOf(t) + '">' + esc(t.name) + '</button>').join('') + '</div>') +
+      '<p class="note">やる日が来ると朝4時の区切りで自動でリストに入ります。前の分がまだ残っているときは追加しません（いつも1つだけ）。点数は1〜5点で、家事の重さの目安です。夫婦で相談して決めるのがおすすめです。</p>';
+  }
+
+  function routineForm(r) {
+    const wds = (r.when || '').split(',');
+    return '<div class="panel show rform"><b>' + (r.id ? '「' + esc(r.name) + '」を編集' : 'ルーティンを追加') + '</b>' +
+      '<label>家事の名前<input id="rname" value="' + esc(r.name || '') + '" placeholder="例：風呂掃除"></label>' +
+      '<label>くり返し<select id="rperiod">' + [['毎日', '毎日'], ['毎週', '毎週（曜日）'], ['毎月', '毎月（日にち）'], ['間隔', '〇日ごと']].map(([v, l]) =>
+        '<option value="' + v + '"' + (r.period === v ? ' selected' : '') + '>' + l + '</option>').join('') + '</select></label>' +
+      '<div class="when" data-for="毎週"' + (r.period === '毎週' ? '' : ' hidden') + '><div class="wds">' + WDS.split('').map(w =>
+        '<button class="wd' + (r.period === '毎週' && wds.includes(w) ? ' on' : '') + '" data-wd="' + w + '">' + w + '</button>').join('') + '</div></div>' +
+      '<label class="when" data-for="毎月"' + (r.period === '毎月' ? '' : ' hidden') + '>日にち（「1,15」「末」など）<input id="rmonth" inputmode="text" value="' + esc(r.period === '毎月' ? r.when || '' : '') + '" placeholder="例：1,15"></label>' +
+      '<label class="when" data-for="間隔"' + (r.period === '間隔' ? '' : ' hidden') + '>何日ごと<input id="rdays" type="number" min="1" max="366" inputmode="numeric" value="' + esc(r.period === '間隔' ? r.when || '' : '') + '" placeholder="例：14"></label>' +
+      '<div class="row3"><label>やる日の回数<select id="rcount">' + [1, 2, 3, 4, 5, 6].map(n => '<option' + (n === (r.count || 1) ? ' selected' : '') + '>' + n + '</option>').join('') + '</select></label>' +
+      '<label>点数<select id="rpts">' + ptsOpts(r.points || 2) + '</select></label>' +
+      '<label>種類<select id="rcat">' + catOpts(r.cat || chores.categories[0]) + '</select></label></div>' +
+      '<p class="note">回数を2以上にすると「（1回目）」「（2回目）」…に分かれ、回ごとに1つだけ入ります。</p>' +
+      '<div class="row"><button class="save" data-rsave="1">保存</button>' +
+      (r.id ? '<button class="cancel" data-rstop="' + (r.stopped ? '0' : '1') + '">' + (r.stopped ? '再開する' : '止める') + '</button><button class="hide" data-rdel="1">消す</button>' : '') +
+      '<button class="cancel" data-rcancel="1">やめる</button></div></div>';
+  }
+
+  function bindChores() {
+    app.onclick = e => {
+      if (!chores) return;
+      const t = sel => e.target.closest(sel);
+      let b;
+      if ((b = t('[data-me]'))) { store.set('fb_me', b.dataset.me); return renderChores(); }
+      if (t('[data-reme]')) { store.set('fb_me', ''); return renderChores(); }
+      if ((b = t('[data-cdel]'))) {
+        if (!confirm('やらずにリストから消しますか？（記録には残りません）')) return;
+        chores.items = chores.items.filter(x => x.id !== b.dataset.cdel); picking = null; renderChores();
+        return csend('choreRemove', { id: b.dataset.cdel });
+      }
+      if ((b = t('[data-who]'))) {
+        const who = b.dataset.who, id = picking;
+        picking = null;
+        if (!who || !id) return renderChores();
+        const x = chores.items.find(y => y.id === id);
+        chores.items = chores.items.filter(y => y.id !== id);
+        if (x) chores.done.unshift({ id: 'tmp' + Date.now(), name: x.name, points: x.points, by: who, at: Date.now() });
+        renderChores();
+        return csend('choreDone', { id: id, who: who, by: me() });
+      }
+      if ((b = t('[data-undo]'))) {
+        if (/^tmp/.test(b.dataset.undo)) return;
+        chores.done = chores.done.filter(x => x.id !== b.dataset.undo); renderChores();
+        return csend('choreUndo', { id: b.dataset.undo });
+      }
+      if ((b = t('.citem:not(.done)'))) { picking = picking === b.dataset.cid ? null : b.dataset.cid; return renderChores(); }
+      if (t('#caddBtn')) return addChore();
+      // ルーティン
+      if (t('[data-rnew]')) { editing2 = { name: '', period: '毎日', count: 1, points: 2, cat: chores.categories[0] }; renderChores(); return window.scrollTo(0, 0); }
+      if ((b = t('[data-tpl]'))) { editing2 = Object.assign({}, TEMPLATES[+b.dataset.tpl]); renderChores(); return window.scrollTo(0, 0); }
+      if ((b = t('.rcard'))) { editing2 = Object.assign({}, chores.routines.find(r => r.id === b.dataset.rid)); renderChores(); return window.scrollTo(0, 0); }
+      if ((b = t('[data-wd]'))) { b.classList.toggle('on'); return; }
+      if (t('[data-rcancel]')) { editing2 = null; return renderChores(); }
+      if (t('[data-rsave]')) return saveRoutine();
+      if ((b = t('[data-rstop]'))) { const id = editing2.id; editing2 = null; renderChores(); return csend('routineStop', { id: id, stop: b.dataset.rstop }); }
+      if (t('[data-rdel]')) {
+        if (!confirm('「' + editing2.name + '」のルーティンを消しますか？（今リストにある分と、これまでの記録は残ります）')) return;
+        const id = editing2.id; chores.routines = chores.routines.filter(r => r.id !== id); editing2 = null; renderChores();
+        return csend('routineDelete', { id: id });
+      }
+    };
+    app.onchange = e => {
+      if (e.target.id !== 'rperiod') return;
+      app.querySelectorAll('.when').forEach(el => { el.hidden = el.dataset.for !== e.target.value; });
+    };
+    app.onkeydown = e => { if (e.target.id === 'cname' && e.key === 'Enter') addChore(); };
+  }
+
+  function addChore() {
+    const v = $('cname').value.trim(); if (!v) return;
+    const p = +$('cpts').value, c = $('ccat').value;
+    $('cname').value = '';
+    chores.items.push({ id: 'tmp' + Date.now(), name: v, routine: false, points: p, cat: c, since: 0 });
+    renderChores();
+    csend('choreAdd', { name: v, points: p, cat: c, by: me() });
+  }
+
+  function saveRoutine() {
+    const period = $('rperiod').value;
+    const when = period === '毎週' ? Array.from(app.querySelectorAll('.wd.on')).map(b => b.dataset.wd).join(',')
+      : period === '毎月' ? $('rmonth').value.trim() : period === '間隔' ? $('rdays').value.trim() : '';
+    const name = $('rname').value.trim();
+    if (!name) return status('家事の名前を入れてください');
+    if (period !== '毎日' && !when) return status(period === '毎週' ? '曜日を選んでください' : period === '毎月' ? '日にちを入れてください' : '何日ごとかを入れてください');
+    const params = { id: editing2.id || '', name: name, period: period, when: when, count: $('rcount').value, points: $('rpts').value, cat: $('rcat').value };
+    editing2 = null; renderChores();
+    csend('routineSave', params);
+  }
+
+  // ----- 集計 -----
+  let cstats = cached('choreStats');
+
+  function choreStatsPage() {
+    app.innerHTML = choreHead('chores-stats') + '<div id="cbody"><p class="empty">読み込み中…</p></div>';
+    app.onclick = null; app.onchange = null; app.onkeydown = null;
+    if (cstats) renderStats();
+    status('更新中…');
+    api('choreStats', { weeks: 8 }).then(d => { cstats = d; remember('choreStats', d); if (pageName() === 'chores-stats') renderStats(); status(''); })
+      .catch(e => status('更新できませんでした：' + e.message));
+  }
+
+  function renderStats() {
+    const body = $('cbody'); if (!body) return;
+    const s = cstats, ms = s.members;
+    const sum = o => ms.reduce((a, m) => a + (o[m.id] || 0), 0);
+    const color = i => COLORS[i % 4];
+    // 積み上げの横棒。scale を渡すと長さも比べられる（なければ100%の割合）
+    const bar = (o, scale) => {
+      const all = sum(o);
+      if (!all) return '<div class="bar empty"></div>';
+      const width = scale ? Math.max(all / scale * 100, 4) : 100;
+      return '<div class="bar" style="width:' + width + '%">' + ms.map((m, i) => {
+        const v = o[m.id] || 0; if (!v) return '';
+        return '<span style="width:' + (v / all * 100) + '%;background:' + color(i) + '">' + (v / all >= 0.18 ? Math.round(v) : '') + '</span>';
+      }).join('') + '</div>';
+    };
+    const legend = '<div class="legend">' + ms.map((m, i) => '<span><i style="background:' + color(i) + '"></i>' + esc(m.name) + '</span>').join('') +
+      '<span class="lnote">「2人で」は半分ずつ</span></div>';
+    const summary = (title, o, n) => {
+      const all = sum(o);
+      return '<div class="scard"><div class="h">' + title + '</div>' + bar(o) +
+        '<div class="nums">' + ms.map((m, i) => '<div><i style="background:' + color(i) + '"></i>' + esc(m.name) + '<b>' + pts(o[m.id] || 0) + '</b>' +
+          (all ? '<small>' + Math.round((o[m.id] || 0) / all * 100) + '%' + (n ? '・' + Math.round(n[m.id] || 0) + '件' : '') + '</small>' : '') + '</div>').join('') + '</div></div>';
+    };
+    const cur = s.weeks[s.weeks.length - 1], prev = s.weeks[s.weeks.length - 2];
+    const maxWeek = Math.max(1, ...s.weeks.map(w => sum(w.pts)));
+    const mdS = d => { const [, m, dd] = d.split('-').map(Number); return m + '/' + dd; };
+    const total30 = sum(s.recent.pts);
+    if (!total30 && !sum(cur.pts)) {
+      body.innerHTML = legend + '<p class="empty">まだ記録がありません。リストの家事をタップして「だれがやった？」を選ぶと、ここに集計されます。</p>';
+      return;
+    }
+    const maxCat = Math.max(1, ...s.cats.map(c => sum(c.pts)));
+    const maxCh = Math.max(1, ...s.chores.map(c => sum(c.pts)));
+    body.innerHTML = legend +
+      summary('今週（' + mdS(cur.start) + '〜）', cur.pts, cur.n) +
+      (prev && sum(prev.pts) ? summary('先週', prev.pts, prev.n) : '') +
+      summary('直近30日', s.recent.pts, s.recent.n) +
+      '<h2>週ごとの推移</h2><div class="scard">' + s.weeks.map(w => '<div class="srow"><span class="lab">' + mdS(w.start) + '〜</span>' +
+        '<div class="track">' + bar(w.pts, maxWeek) + '</div><span class="tot">' + Math.round(sum(w.pts)) + '</span></div>').join('') + '</div>' +
+      (s.cats.length ? '<h2>種類ごと（直近30日）</h2><div class="scard">' + s.cats.map(c => '<div class="srow"><span class="lab">' + esc(c.name) + '</span>' +
+        '<div class="track">' + bar(c.pts, maxCat) + '</div><span class="tot">' + Math.round(sum(c.pts)) + '</span></div>').join('') + '</div>' : '') +
+      (s.chores.length ? '<h2>家事ごと（直近30日）</h2><div class="scard">' + s.chores.map(c => '<div class="srow"><span class="lab">' + esc(c.name) + '</span>' +
+        '<div class="track">' + bar(c.pts, maxCh) + '</div><span class="tot">' + Math.round(sum(c.pts)) + '</span></div>').join('') + '</div>' : '') +
+      '<p class="note">棒の中の数字は点数です。点数は家事の重さの目安なので、合わないと思ったら「🔁 ルーティン」で直してください。</p>';
+  }
+
   // ===== 使い方 =====
   function helpPage() {
     const sec = (icon, title, body) => '<div class="help"><div class="h">' + icon + ' ' + title + '</div>' + body + '</div>';
@@ -260,6 +523,15 @@
         '<li>新しく入力した物には、合う絵文字があれば自動でアイコンが付きます。</li>' +
         '<li>LINEで ' + ex('買う 牛乳') + ' と送っても追加できます（' + ex('買う 牛乳、卵') + ' でまとめて）。</li>' +
         '<li>プリントに買う必要がありそうな物があると、結果の下に「🛒」のボタンが出ます。タップするだけでリストに入ります。</li></ul>') +
+      sec('🧹', '家事リスト',
+        '<ul><li><b>📄 プリント</b> のページの下の「🧹 家事リスト」で開きます（LINEで ' + ex('家事') + ' と送っても、今のリストとページのリンクが届きます）。</li>' +
+        '<li>終わった家事をタップして、<b>だれがやったか</b>（自分・相手・2人で）を選ぶとリストから消え、記録されます。間違えたら「終わった家事」の「取り消す」で戻せます。</li>' +
+        '<li>やらずに消したいときは「×」（記録には残りません）。</li>' +
+        '<li>毎日・毎週・毎月・〇日ごとの家事は <b>🔁 ルーティン</b> に登録すると、朝4時の区切りで自動でリストに入ります。前の分がまだ残っているときは追加しません（いつも1つだけ）。</li>' +
+        '<li>1日に何回もする家事は回数を2以上にすると「（1回目）」「（2回目）」に分かれます。</li>' +
+        '<li>家事には1〜5点の点数（重さ）があり、<b>📊 集計</b> で、どちらがどれだけやっているかを週ごと・種類ごと・家事ごとに見られます。毎週日曜の夜にもLINEでまとめが届きます。</li>' +
+        '<li>LINEで ' + ex('家事 網戸洗い') + ' と送ると追加、' + ex('済 風呂掃除') + ' で自分がやったとして記録（' + ex('済 風呂掃除 2人で') + ' で2人で）。</li>' +
+        '<li>初めて開いたときに「あなたはどちらですか？」と聞かれます。その端末で使う人を選んでください。</li></ul>') +
       sec('🎹', 'ピアノの宿題',
         '<ol><li>画面下の <b>🎹 ピアノ</b> を押します（または ' + ex('ピアノ') + ' と送ります）。</li>' +
         '<li>10分以内に写真を送ると、そのまま保存されます（読み取りはしません。何枚でも可）。</li></ol>' +
