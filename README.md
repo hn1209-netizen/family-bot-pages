@@ -7,3 +7,5 @@
 - **このリポジトリには秘密の情報（APIキー・トークン・鍵・デプロイID）を入れない**
 
 ページ：`p` なし＝プリント・ピアノ、`p=past-print`／`p=past-piano`＝過去の一覧、`p=shop`＝買い物リスト、`p=chores`／`p=chores-routines`／`p=chores-stats`＝家事リスト（リスト・ルーティン・集計）、`p=help`＝使い方
+
+`tsunagu/` ＝「つなぐ手帳」（個人用ツール）のホームページとプライバシーポリシー。Google の OAuth 同意画面から参照する。
